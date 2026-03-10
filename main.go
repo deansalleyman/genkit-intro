@@ -8,6 +8,8 @@ import (
     "io"
     "log"
     "net/http"
+    "strconv"
+    "strings"
 
     "github.com/firebase/genkit/go/genkit"
     "github.com/firebase/genkit/go/plugins/googlegenai"
@@ -21,13 +23,34 @@ type RecipeInput struct {
     DietaryRestrictions  string `json:"dietaryRestrictions,omitempty" jsonschema:"description=Any dietary restrictions"`
 }
 
+// FlexInt unmarshals from either a JSON number or a JSON string (e.g. model returns "4" for servings).
+type FlexInt int
+
+func (n *FlexInt) UnmarshalJSON(data []byte) error {
+	var i int
+	if err := json.Unmarshal(data, &i); err == nil {
+		*n = FlexInt(i)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	i, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return err
+	}
+	*n = FlexInt(i)
+	return nil
+}
+
 // Define output schema
 type Recipe struct {
     Title        string   `json:"title"`
     Description  string   `json:"description"`
     PrepTime     string   `json:"prepTime"`
     CookTime     string   `json:"cookTime"`
-    Servings     int      `json:"servings"`
+    Servings     FlexInt  `json:"servings"`
     Ingredients  []string `json:"ingredients"`
     Instructions []string `json:"instructions"`
     Tips         []string `json:"tips,omitempty"`
@@ -76,32 +99,29 @@ func main() {
         genkit.WithPromptDir("./prompts"),
     )
 
+    // Register schemas so .prompt files can reference them by name (see genkit.dev/docs/go/dotprompt)
+    genkit.DefineSchemaFor[RecipeInput](g)
+    genkit.DefineSchemaFor[Recipe](g)
+
     // Define a recipe generator flow
     recipeGeneratorFlow := genkit.DefineFlow(g, "recipeGeneratorFlow", func(ctx context.Context, input *RecipeInput) (*Recipe, error) {
-        // Create a prompt based on the input
         dietaryRestrictions := input.DietaryRestrictions
         if dietaryRestrictions == "" {
             dietaryRestrictions = "none"
         }
 
+        // Look up .prompt file with type information (see genkit.dev/docs/go/dotprompt)
+        recipePrompt := genkit.LookupDataPrompt[RecipeInput, *Recipe](g, "create_recipe")
+        if recipePrompt == nil {
+            return nil, fmt.Errorf("prompt create_recipe not found")
+        }
 
-
-
-
-		        // prompt := fmt.Sprintf(`Create a recipe with the following requirements:
-        //     Main ingredient: %s
-        //     Dietary restrictions: %s`, input.Ingredient, dietaryRestrictions)
-
-		// Look up a .prompt file with type information
-		recipePrompt := genkit.LookupDataPrompt[RecipeInput, *Recipe](g, "create_recipe")
-
-		// Execute with strongly-typed input, get strongly-typed output
-		recipe, _, err := recipePrompt.Execute(ctx, RecipeInput{Ingredient: input.Ingredient, DietaryRestrictions: dietaryRestrictions})
-		if err != nil {
-			return nil, err
-		}
-
-		return recipe, nil
+        // Execute with strongly-typed input, get strongly-typed output
+        recipe, _, err := recipePrompt.Execute(ctx, RecipeInput{Ingredient: input.Ingredient, DietaryRestrictions: dietaryRestrictions})
+        if err != nil {
+            return nil, err
+        }
+        return recipe, nil
     })
 
     // Run the flow once to test it
