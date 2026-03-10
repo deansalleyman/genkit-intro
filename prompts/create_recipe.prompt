@@ -1,0 +1,12 @@
+---
+model: googleai/gemini-2.5-flash
+config:
+  temperature: 0.5
+input:
+  schema: RecipeInput
+output:
+  schema: Recipe
+---
+Create a recipe with the following requirements:
+Main ingredient: {{ingredient}}
+Dietary restrictions: {{dietaryRestrictions}}

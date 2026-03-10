@@ -9,7 +9,6 @@ import (
     "log"
     "net/http"
 
-    "github.com/firebase/genkit/go/ai"
     "github.com/firebase/genkit/go/genkit"
     "github.com/firebase/genkit/go/plugins/googlegenai"
     "github.com/firebase/genkit/go/plugins/server"
@@ -70,10 +69,11 @@ func main() {
 
     ctx := context.Background()
 
-    // Initialize Genkit with the Google AI plugin
+    // Initialize Genkit with the Google AI plugin and load prompts from ./prompts
     g := genkit.Init(ctx,
         genkit.WithPlugins(&googlegenai.GoogleAI{}),
         genkit.WithDefaultModel("googleai/gemini-2.5-flash"),
+        genkit.WithPromptDir("./prompts"),
     )
 
     // Define a recipe generator flow
@@ -84,19 +84,24 @@ func main() {
             dietaryRestrictions = "none"
         }
 
-        prompt := fmt.Sprintf(`Create a recipe with the following requirements:
-            Main ingredient: %s
-            Dietary restrictions: %s`, input.Ingredient, dietaryRestrictions)
 
-        // Generate structured recipe data using the same schema
-        recipe, _, err := genkit.GenerateData[Recipe](ctx, g,
-            ai.WithPrompt(prompt),
-        )
-        if err != nil {
-            return nil, fmt.Errorf("failed to generate recipe: %w", err)
-        }
 
-        return recipe, nil
+
+
+		        // prompt := fmt.Sprintf(`Create a recipe with the following requirements:
+        //     Main ingredient: %s
+        //     Dietary restrictions: %s`, input.Ingredient, dietaryRestrictions)
+
+		// Look up a .prompt file with type information
+		recipePrompt := genkit.LookupDataPrompt[RecipeInput, *Recipe](g, "create_recipe")
+
+		// Execute with strongly-typed input, get strongly-typed output
+		recipe, _, err := recipePrompt.Execute(ctx, RecipeInput{Ingredient: input.Ingredient, DietaryRestrictions: dietaryRestrictions})
+		if err != nil {
+			return nil, err
+		}
+
+		return recipe, nil
     })
 
     // Run the flow once to test it
